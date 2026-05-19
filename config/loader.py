@@ -16,6 +16,8 @@ from core.models import (
 )
 
 
+# 这个环境变量名用于在 GitHub Actions 中直接接收消息推送开关。
+# 当整包 Secret JSON 没有给出 notification.enabled 时，会回退到这里继续解析。
 NOTIFICATION_ENABLED_ENV_NAME = "XIXUNYUN_NOTIFICATION_ENABLED"
 
 
@@ -96,6 +98,8 @@ def load_config(config_path: str, is_github_actions: bool) -> ResolvedConfig:
     if not default_address_name:
         default_address_name = "中国"
 
+    # runtime 对象承载的是主流程运行期直接消费的基础参数。
+    # 这里会把 JSON 中的值统一转成主流程预期的数据类型。
     runtime = RuntimeOptions(
         timezone_name=timezone_name,
         time_format=time_format,
@@ -122,6 +126,7 @@ def load_config(config_path: str, is_github_actions: bool) -> ResolvedConfig:
     )
 
     # account 区块按字段级规则解析，支持 JSON、整包 Secret JSON 和字段级环境变量补值。
+    # 这里返回的每个字段都已经是最终生效的字符串值，业务层不再关心来源细节。
     account = AccountConfig(
         school_name=_resolve_value(
             account_section,
@@ -182,6 +187,7 @@ def load_config(config_path: str, is_github_actions: bool) -> ResolvedConfig:
     )
 
     # 通知请求模板允许保留动态结构，因此会单独走模板合并逻辑。
+    # 模板中的动态值来源和层级对象会在这里完成规整，发送阶段只读取最终模板。
     notification_request_template = _merge_request_template(
         _ensure_mapping_value(
             notification_section.get("request", {}), "notification.request"
@@ -195,6 +201,7 @@ def load_config(config_path: str, is_github_actions: bool) -> ResolvedConfig:
         is_github_actions,
         source_map,
     )
+    # enabled 和 force_push 分别承担是否发送通知以及重复签到是否继续发送的职责。
     notification_enabled = _resolve_notification_enabled(
         notification_section, secret_overrides, is_github_actions, source_map
     )
@@ -219,6 +226,8 @@ def load_config(config_path: str, is_github_actions: bool) -> ResolvedConfig:
     # 所有字段解析完成后再统一做运行前校验，避免主流程进入半配置状态。
     _validate_config(account, runtime, notification)
 
+    # 这里返回的配置对象就是主流程唯一使用的配置入口。
+    # 原始 JSON、Secret JSON 和环境变量差异都已经折叠成统一结构。
     return ResolvedConfig(
         config_path=str(config_file.resolve()),
         runtime=runtime,
@@ -241,11 +250,13 @@ def resolve_force_push_with_source(
 ) -> tuple[bool, str]:
     # 强制推送开关在 GitHub Actions 中优先读取手动输入，其次才回退到配置文件里的 force_push。
     if is_github_actions:
+        # 工作流输入进入进程后统一按小写文本解析，避免大小写差异影响判断结果。
         raw_value = os.getenv(config.github_force_push_env, "").strip().lower()
         if raw_value in {"true", "1", "yes", "on"}:
             return True, f"workflow_input:{config.github_force_push_env}"
         if raw_value in {"false", "0", "no", "off"}:
             return False, f"workflow_input:{config.github_force_push_env}"
+    # 本地运行和未提供工作流输入时，统一沿用配置对象里的 force_push 结果。
     return config.notification.force_push, config.source_map.get(
         "notification.force_push", "json"
     )
@@ -260,12 +271,14 @@ def _resolve_notification_enabled(
     # 消息推送开关在 GitHub Actions 中优先读取 Repository Secret，再回退到 JSON。
     source_key = "notification.enabled"
     if is_github_actions:
+        # 整包 Secret JSON 允许在不改动仓库配置文件的情况下直接覆盖通知开关。
         override_value = _deep_get(secret_overrides, ["notification", "enabled"])
         parsed_override_value = _parse_bool_value(override_value)
         if parsed_override_value is not None:
             source_map[source_key] = "secret_json:notification"
             return parsed_override_value
 
+        # 这个环境变量是通知开关的固定兜底入口，不依赖字段级 env_name 配置。
         parsed_env_value = _parse_bool_value(
             os.getenv(NOTIFICATION_ENABLED_ENV_NAME, "")
         )
@@ -274,10 +287,12 @@ def _resolve_notification_enabled(
             return parsed_env_value
 
     if "enabled" in notification_section:
+        # JSON 中字段存在但值非法时，会按关闭处理，并保留来源为 json。
         parsed_json_value = _parse_bool_value(notification_section.get("enabled"))
         source_map[source_key] = "json"
         return parsed_json_value if parsed_json_value is not None else False
 
+    # 三层来源都没有给出有效值时，通知开关默认关闭。
     source_map[source_key] = "default"
     return False
 
@@ -290,10 +305,12 @@ def _load_secret_overrides(
         return {}
     if not secret_overrides_env:
         return {}
+    # 环境变量未提供时直接返回空对象，表示当前运行没有整包覆盖层。
     raw_value = os.getenv(secret_overrides_env, "").strip()
     if not raw_value:
         return {}
     try:
+        # Secret JSON 的读取结果会沿用配置文件的注释清洗规则，保证两类来源结构一致。
         parsed = json.loads(raw_value)
         if not isinstance(parsed, dict):
             raise ConfigError(f"环境变量 {secret_overrides_env} 的顶层必须是对象")
@@ -317,6 +334,7 @@ def _resolve_value(
     json_value = ""
     env_name = ""
 
+    # 字段既支持完整 spec 对象，也兼容直接写成纯字符串的简化形式。
     if isinstance(config_spec, dict):
         json_value = str(config_spec.get("value", "")).strip()
         env_name = str(config_spec.get("env_name", "")).strip()
@@ -342,6 +360,7 @@ def _resolve_value(
             source_map[source_key] = f"env:{env_name}"
             return env_value
 
+    # 三层来源都没有给出有效值时，统一落成空字符串，并在来源表中标成 empty。
     source_map[source_key] = "empty"
     return ""
 
@@ -364,6 +383,7 @@ def _merge_request_template(
     body_type_value = str(merged.get("body_type", "form")).strip() or "form"
     merged["method"] = method_value.upper()
     merged["body_type"] = body_type_value.lower()
+    # 这三个区块在发送阶段会被当作键值映射直接消费，所以在这里先做对象校验。
     merged["headers"] = _ensure_mapping_value(
         merged.get("headers", {}), "notification.request.headers"
     )
@@ -376,10 +396,12 @@ def _merge_request_template(
 
     source_map["notification.request.method"] = "json"
     source_map["notification.request.body_type"] = "json"
+    # URL 的来源既可能是固定值，也可能来自环境变量或消息变量声明。
     source_map["notification.request.url"] = _resolve_spec_source(
         merged.get("url", {}), "notification.request.url", is_github_actions, source_map
     )
 
+    # 头、查询参数和请求体字段的来源信息会逐项展开，供 Summary 单独展示。
     _mark_mapping_sources(
         merged.get("headers", {}),
         "notification.request.headers",
@@ -408,6 +430,7 @@ def _mark_mapping_sources(
     source_map: dict[str, str],
 ) -> None:
     # 这里不展开 message 变量的实际值，只记录每个模板字段最终的来源类型。
+    # 调用方负责保证 mapping 已经是对象结构，这里只逐项登记来源。
     for key, spec in mapping.items():
         source_map[f"{prefix}.{key}"] = _resolve_spec_source(
             spec, f"{prefix}.{key}", is_github_actions, source_map
@@ -432,22 +455,26 @@ def _resolve_spec_source(
 ) -> str:
     # 这个函数只判断推送模板字段的来源类型，不返回字段本身的实际值。
     if isinstance(spec, dict):
+        # source 为 message 时表示字段值来自运行期消息变量，而不是配置中的静态值。
         source_type = str(spec.get("source", "")).strip()
         if source_type == "message":
             return "message_variable"
 
+        # 这里的判断顺序和真正取值顺序保持一致，先看 value，再看环境变量。
         json_value = spec.get("value", "")
         env_name = str(spec.get("env_name", "")).strip()
         if not _is_blank(json_value):
             return "json"
         if is_github_actions and env_name and not _is_blank(os.getenv(env_name, "")):
             return f"env:{env_name}"
+    # 没有显式命中其他来源时，Summary 统一把模板字段视作来自 JSON 配置结构。
     return "json"
 
 
 def _deep_fill_blank_values(base_value: Any, override_value: Any) -> Any:
     # 这个深度合并函数只会在原值为空时填入覆盖值，保证 JSON 优先级始终高于 Secret。
     if isinstance(base_value, dict) and "value" in base_value:
+        # 叶子节点采用 spec 结构时，只允许覆盖其中的 value，不改变其他描述字段。
         if not isinstance(override_value, dict):
             merged_spec = deepcopy(base_value)
             if _is_blank(merged_spec.get("value")) and not _is_blank(override_value):
@@ -455,6 +482,7 @@ def _deep_fill_blank_values(base_value: Any, override_value: Any) -> Any:
             return merged_spec
 
     if isinstance(base_value, dict) and isinstance(override_value, dict):
+        # 两边都是对象时递归下钻，保证嵌套模板仍然沿用同一套留空补值规则。
         merged: dict[str, Any] = deepcopy(base_value)
         for key, override_child in override_value.items():
             base_child = merged.get(key)
@@ -464,6 +492,7 @@ def _deep_fill_blank_values(base_value: Any, override_value: Any) -> Any:
             merged[key] = _deep_fill_blank_values(base_child, override_child)
         return merged
 
+    # 标量和列表场景只在原值为空时用覆盖值替换，否则保持原值不动。
     if _is_blank(base_value) and not _is_blank(override_value):
         return deepcopy(override_value)
     return deepcopy(base_value)
@@ -511,6 +540,7 @@ def _load_json_config(config_file: Path) -> dict[str, Any]:
         parsed = json.loads(config_file.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:
         raise ConfigError(f"配置文件不是合法 JSON: {exc}") from exc
+    # 顶层必须是对象结构，后续所有固定区块都是从这个对象里按键取值。
     if not isinstance(parsed, dict):
         raise ConfigError("配置文件顶层必须是对象")
     return _strip_comment_entries(parsed)
@@ -519,6 +549,7 @@ def _load_json_config(config_file: Path) -> dict[str, Any]:
 def _strip_comment_entries(value: Any) -> Any:
     # 说明性注释键只服务于人工阅读，不允许参与程序实际配置解析和映射。
     if isinstance(value, dict):
+        # 字典节点会逐项递归清洗，非注释键保持原始层级结构不变。
         cleaned: dict[str, Any] = {}
         for key, child in value.items():
             if _is_comment_key(key):
@@ -526,6 +557,7 @@ def _strip_comment_entries(value: Any) -> Any:
             cleaned[key] = _strip_comment_entries(child)
         return cleaned
     if isinstance(value, list):
+        # 列表节点不会删元素，只会继续清洗列表里的嵌套对象。
         return [_strip_comment_entries(item) for item in value]
     return value
 
@@ -538,6 +570,7 @@ def _is_comment_key(key: Any) -> bool:
 def _ensure_mapping_value(value: Any, field_name: str) -> dict[str, Any]:
     # 需要对象结构的配置区块都会先经过这里校验，避免错误类型流入业务链路。
     if value is None:
+        # 缺失区块按空对象处理，调用方可以继续套用默认值逻辑。
         return {}
     if not isinstance(value, dict):
         raise ConfigError(f"{field_name} 必须是对象")
@@ -576,6 +609,8 @@ def _validate_config(
     if runtime.sign_submit_delay_seconds < 0:
         raise ConfigError("sign_submit_delay_seconds 不能小于 0")
 
+    # 这三个字段会直接传给通知发送模块作为映射对象使用。
+    # 如果这里不是对象，后续请求组装阶段就无法按键展开字段。
     for field_name in ["headers", "query_params", "body_fields"]:
         if not isinstance(notification.request_template.get(field_name, {}), dict):
             raise ConfigError(f"notification.request.{field_name} 必须是对象")
