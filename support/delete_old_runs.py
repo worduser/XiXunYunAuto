@@ -275,12 +275,10 @@ def build_workflow_info_lines(
     beijing_time = current_time.astimezone(timezone(timedelta(hours=8))).strftime(
         "%Y-%m-%d %H:%M:%S:%f"
     )[:-3]
-    force_push_status = resolve_force_push_message()
     triggering_actor = os.getenv("GITHUB_TRIGGERING_ACTOR", "").strip()
     actor_name = os.getenv("GITHUB_ACTOR", "").strip()
     initiated_run_by = triggering_actor or actor_name
     return [
-        f"Force Push Message：{force_push_status}",
         "Branch Name：" + describe_runtime_value(
             os.getenv("GITHUB_REF_NAME", "").strip(), "当前环境未提供 GITHUB_REF_NAME"
         ),
@@ -317,14 +315,6 @@ def build_workflow_info_lines(
         f"Beijing Time：{beijing_time}",
         "Copyright © 2026 NianBroken. All rights reserved.",
     ]
-
-
-def resolve_force_push_message() -> str:
-    # delete_old_runs 工作流本身没有推送逻辑，所以默认状态就是 False。
-    raw_value = os.getenv("XIXUNYUN_FORCE_PUSH", "").strip().lower()
-    if raw_value in {"true", "1", "yes", "on"}:
-        return "True"
-    return "False"
 
 
 def describe_runtime_value(value: str, fallback_message: str) -> str:
