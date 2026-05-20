@@ -9,7 +9,9 @@ from curl_cffi import requests as curl_requests
 
 
 def send_notification(
-    request_template: dict[str, Any], message_variables: dict[str, str]
+    request_template: dict[str, Any],
+    message_variables: dict[str, str],
+    timeout_seconds: int,
 ) -> dict[str, Any]:
     # 推送请求的 URL、请求头、查询参数和请求体字段都会在发送前统一解析。
     url = _resolve_value(request_template.get("url", ""), message_variables)
@@ -24,12 +26,13 @@ def send_notification(
     )
 
     request_kwargs: dict[str, Any] = {
-        # timeout 和 impersonate 在当前实现中保持固定，避免推送流程和业务接口配置相互混杂。
+        # 推送请求的超时时间会和主业务请求复用同一份运行配置。
+        # impersonate 保持固定，避免通知模板和网络指纹配置彼此混杂。
         "method": method,
         "url": url,
         "headers": headers,
         "params": query_params,
-        "timeout": 30,
+        "timeout": timeout_seconds,
         "impersonate": "chrome124",
     }
 
@@ -61,6 +64,7 @@ def send_notification(
             "params": query_params,
             "body_type": body_type,
             "body_fields": body_fields,
+            "timeout_seconds": timeout_seconds,
         },
     }
 

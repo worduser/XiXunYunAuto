@@ -16,9 +16,9 @@
     "default_address_name": "中国",
     "_comment_request_timeout_seconds": "request_timeout_seconds 表示单次 HTTP 请求的超时秒数。业务接口和通知接口都会遵循这里的限制。",
     "request_timeout_seconds": 30,
-    "_comment_retry_attempts": "retry_attempts 表示带重试阶段允许执行的总次数。当前程序要求这个值固定为 3。",
+    "_comment_retry_attempts": "retry_attempts 表示带重试阶段允许执行的总次数。这个值必须是大于等于 1 的整数。",
     "retry_attempts": 3,
-    "_comment_retry_interval_seconds": "retry_interval_seconds 表示两次重试之间的等待秒数。当前程序要求这个值固定为 5。",
+    "_comment_retry_interval_seconds": "retry_interval_seconds 表示两次重试之间的等待秒数。这个值必须是大于等于 0 的整数。",
     "retry_interval_seconds": 5,
     "_comment_sign_submit_delay_seconds": "sign_submit_delay_seconds 表示发起签到前的额外等待秒数。设置为 0 表示不等待。",
     "sign_submit_delay_seconds": 3
@@ -71,6 +71,14 @@
       "_comment": "latitude 的 value 表示明文纬度。留空时程序会尝试从签到查询接口返回的 mid_sign_latitude 中补足。env_name 表示对应的环境变量名。",
       "value": "12.123456",
       "env_name": "XIXUNYUN_LATITUDE"
+    }
+  },
+  "sign": {
+    "_comment": "这个区块保存签到类型匹配规则。程序会根据这里给出的签到类型文本，在签到查询接口返回的 mark_list 中寻找对应项。",
+    "target_type": {
+      "_comment": "target_type 的 value 表示需要匹配的签到类型文本。程序会找到同一项对应的 key，并把它作为签到请求中的 remark。env_name 表示对应的环境变量名。",
+      "value": "上班",
+      "env_name": "XIXUNYUN_SIGN_TYPE"
     }
   },
   "notification": {

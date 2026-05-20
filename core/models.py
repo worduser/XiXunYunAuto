@@ -63,6 +63,13 @@ class AccountConfig:
 
 
 @dataclass(slots=True)
+class SignConfig:
+    # 这个对象保存签到类型匹配规则。
+    # target_type 表示要在签到查询接口 mark_list.value 中匹配的签到类型文本。
+    target_type: str
+
+
+@dataclass(slots=True)
 class NotificationConfig:
     # 这个对象保存消息推送相关配置。
     # enabled 表示是否启用消息推送。
@@ -90,6 +97,8 @@ class ResolvedConfig:
     github_force_push_env: str
     # account 保存账号和位置信息。
     account: AccountConfig
+    # sign 保存签到类型匹配规则。
+    sign: SignConfig
     # notification 保存消息推送配置。
     notification: NotificationConfig
     # source_map 记录每个配置字段最终来自哪里。
@@ -213,6 +222,8 @@ class ExecutionSnapshot:
     sign_point: str = ""
     sign_in_month_count: str = ""
     continuous_sign_in: str = ""
+    # target_sign_type 保存当前配置要求匹配的签到类型文本。
+    target_sign_type: str = ""
     # 签到提交参数相关字段保存最终参与提交或展示的地点信息。
     sign_type_remark: str = ""
     sign_address: str = ""

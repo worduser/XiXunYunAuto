@@ -24,8 +24,8 @@ class ResponseRecorder:
         self.time_format = time_format
         self.console_enabled = console_enabled
         self.file_enabled = file_enabled
-        # 控制台截断长度最低保持 200，避免预览内容过短而失去排查价值。
-        self.console_truncate = max(console_truncate, 200)
+        # 控制台截断长度完全遵循配置值，具体合法性由配置加载阶段负责校验。
+        self.console_truncate = console_truncate
         self.entries: list[str] = []
         self.output_path = ""
 

@@ -16,7 +16,12 @@ from api.endpoints import (
     SIGN_SUBMIT_ENDPOINT,
     build_login_version,
 )
-from config.loader import ConfigError, load_config, resolve_force_push_with_source
+from config.loader import (
+    ConfigError,
+    load_config,
+    resolve_force_push_bootstrap,
+    resolve_force_push_with_source,
+)
 from core.cleanup import cleanup_runtime_artifacts
 from core.errors import WorkflowError
 from core.models import (
@@ -54,7 +59,9 @@ def main() -> int:
     api_client: ApiClient | None = None
     snapshot = ExecutionSnapshot(
         environment_label=environment.source_label,
-        force_push_active=resolve_force_push_from_runtime_default(),
+        force_push_active=resolve_force_push_bootstrap(
+            CONFIG_PATH, environment.is_github_actions
+        ),
     )
 
     try:
@@ -91,6 +98,7 @@ def main() -> int:
         )
         snapshot.school_name = config.account.school_name
         snapshot.school_id = config.account.school_id
+        snapshot.target_sign_type = config.sign.target_type
 
         logger.info("配置校验", f"当前运行环境为 {environment.source_label}")
         logger.info("配置校验", f"配置文件路径为 {config.config_path}")
@@ -123,6 +131,7 @@ def main() -> int:
             snapshot,
             stage="首次签到查询",
             require_remark=True,
+            target_sign_type=config.sign.target_type,
         )
         snapshot.initial_query_message = initial_sign_home.message
         snapshot.initial_query_signed_today = initial_query_details["signed_today"]
@@ -132,7 +141,10 @@ def main() -> int:
 
         # 发起签到前会先整理最终提交参数，包括地址、经纬度和签到类型。
         sign_payload = prepare_sign_payload(
-            config.account, config.runtime.default_address_name, initial_query_details
+            config.account,
+            config.runtime.default_address_name,
+            initial_query_details,
+            config.sign.target_type,
         )
         apply_sign_payload_snapshot(sign_payload, snapshot)
         wait_before_sign(config, logger)
@@ -168,7 +180,12 @@ def main() -> int:
             token=snapshot.token,
         )
         verify_query_details = parse_sign_home(
-            verify_sign_home, config, snapshot, stage="签到后验证", require_remark=False
+            verify_sign_home,
+            config,
+            snapshot,
+            stage="签到后验证",
+            require_remark=False,
+            target_sign_type=config.sign.target_type,
         )
         snapshot.verify_query_signed_today = verify_query_details["signed_today"]
         snapshot.verify_query_message = verify_sign_home.message
@@ -291,12 +308,6 @@ def build_environment() -> RunEnvironment:
     )
 
 
-def resolve_force_push_from_runtime_default() -> bool:
-    # 配置文件尚未成功加载前，会先从约定环境变量里判断一次强制推送默认状态。
-    raw_value = os.getenv("XIXUNYUN_FORCE_PUSH", "").strip().lower()
-    return raw_value in {"true", "1", "yes", "on"}
-
-
 def build_config_source_lines(
     config: ResolvedConfig, environment: RunEnvironment, force_push_source: str
 ) -> list[str]:
@@ -320,6 +331,7 @@ def build_config_source_lines(
         "account.address_name",
         "account.longitude",
         "account.latitude",
+        "sign.target_type",
         "notification.enabled",
         "notification.force_push",
         "notification.request.url",
@@ -366,6 +378,7 @@ def describe_source_key(source_key: str) -> str:
         "account.address_name": "地址名称",
         "account.longitude": "经度",
         "account.latitude": "纬度",
+        "sign.target_type": "目标签到类型",
         "notification.enabled": "消息推送开关",
         "notification.force_push": "强制推送开关",
         "notification.request.url": "消息推送地址",
@@ -717,6 +730,7 @@ def parse_sign_home(
     snapshot: ExecutionSnapshot,
     stage: str,
     require_remark: bool,
+    target_sign_type: str,
 ) -> dict[str, object]:
     # 签到查询接口里可供后续流程使用的数据，主要位于 data 和 sign_resources_info 中。
     data = (
@@ -729,7 +743,7 @@ def parse_sign_home(
             stage, "签到查询接口的 data 字段不是对象结构", SIGN_HOME_ENDPOINT.name
         )
 
-    # 首次签到查询必须先从 mark_list 中找到 value 为上班的签到类型键值。
+    # 首次签到查询必须先从 mark_list 中找到配置要求的签到类型键值。
     remark_value = ""
     mark_list = data.get("mark_list")
     if require_remark:
@@ -740,16 +754,22 @@ def parse_sign_home(
                 SIGN_HOME_ENDPOINT.name,
                 final_status="exception",
             )
-        for item in mark_list:
-            if not isinstance(item, dict):
-                continue
-            if str(item.get("value", "")).strip() == "上班":
-                remark_value = str(item.get("key", "")).strip()
-                break
+        remark_value = find_sign_type_remark(mark_list, target_sign_type)
         if not remark_value:
+            available_sign_types = collect_sign_type_values(mark_list)
+            available_types_text = (
+                "，".join(available_sign_types)
+                if available_sign_types
+                else "mark_list 中没有可用的签到类型值"
+            )
             raise WorkflowError(
                 stage,
-                "签到查询接口存在 mark_list，但找不到 value 为 上班 的签到类型",
+                (
+                    "签到查询接口存在 mark_list，但找不到值为 "
+                    f"{target_sign_type}"
+                    " 的签到类型。当前可选签到类型为 "
+                    f"{available_types_text}"
+                ),
                 SIGN_HOME_ENDPOINT.name,
                 final_status="exception",
             )
@@ -811,6 +831,7 @@ def prepare_sign_payload(
     account: AccountConfig,
     default_address_name: str,
     initial_query_details: dict[str, object],
+    target_sign_type: str,
 ) -> dict[str, str]:
     # 发起签到前的最终提交参数会在这里统一整理。
     # 用户已经填写的字段始终优先，只有空缺项才从首次签到查询结果中补值。
@@ -858,7 +879,9 @@ def prepare_sign_payload(
     if not remark_value:
         raise WorkflowError(
             "发起签到前的数据准备",
-            "签到类型缺失，无法确定 上班 对应的 remark",
+            "签到类型缺失，无法确定 "
+            f"{target_sign_type}"
+            " 对应的 remark",
             final_status="failure",
         )
 
@@ -887,6 +910,31 @@ def stringify_number(value: object) -> str:
     if value in (None, ""):
         return ""
     return str(value).strip()
+
+
+def find_sign_type_remark(mark_list: list[object], target_sign_type: str) -> str:
+    # 这个函数专门负责从 mark_list 中找出配置指定的签到类型对应的 key。
+    normalized_target = target_sign_type.strip()
+    for item in mark_list:
+        if not isinstance(item, dict):
+            continue
+        current_value = str(item.get("value", "")).strip()
+        if current_value != normalized_target:
+            continue
+        return str(item.get("key", "")).strip()
+    return ""
+
+
+def collect_sign_type_values(mark_list: list[object]) -> list[str]:
+    # 这里会把 mark_list 中全部可读的签到类型值整理出来，供错误提示直接复用。
+    values: list[str] = []
+    for item in mark_list:
+        if not isinstance(item, dict):
+            continue
+        current_value = str(item.get("value", "")).strip()
+        if current_value and current_value not in values:
+            values.append(current_value)
+    return values
 
 
 def wait_before_sign(config: ResolvedConfig, logger: RunLogger) -> None:
@@ -1035,7 +1083,9 @@ def emit_notification(
         # 先根据快照生成消息变量，再交给动态请求模板完成发送。
         message_payload = build_message(snapshot, config.notification.message_layouts)
         notification_response = send_notification(
-            config.notification.request_template, message_payload
+            config.notification.request_template,
+            message_payload,
+            config.runtime.request_timeout_seconds,
         )
         notification_json = (
             notification_response["json_body"]

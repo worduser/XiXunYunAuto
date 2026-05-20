@@ -92,9 +92,14 @@ jobs:
           XIXUNYUN_ADDRESS_NAME: ${{ secrets.XIXUNYUN_ADDRESS_NAME }}
           XIXUNYUN_LONGITUDE: ${{ secrets.XIXUNYUN_LONGITUDE }}
           XIXUNYUN_LATITUDE: ${{ secrets.XIXUNYUN_LATITUDE }}
+          XIXUNYUN_SIGN_TYPE: ${{ secrets.XIXUNYUN_SIGN_TYPE }}
           XIXUNYUN_NOTIFICATION_ENABLED: ${{ secrets.XIXUNYUN_NOTIFICATION_ENABLED }}
           XIXUNYUN_PUSH_URL: ${{ secrets.XIXUNYUN_PUSH_URL }}
           XIXUNYUN_PUSH_DEVICE_KEY: ${{ secrets.XIXUNYUN_PUSH_DEVICE_KEY }}
+          XIXUNYUN_PUSH_CONTENT_TYPE: ${{ secrets.XIXUNYUN_PUSH_CONTENT_TYPE }}
+          XIXUNYUN_PUSH_LEVEL: ${{ secrets.XIXUNYUN_PUSH_LEVEL }}
+          XIXUNYUN_PUSH_GROUP: ${{ secrets.XIXUNYUN_PUSH_GROUP }}
+          XIXUNYUN_PUSH_ARCHIVE: ${{ secrets.XIXUNYUN_PUSH_ARCHIVE }}
         run: |
           python main.py
           if [ -f "$GITHUB_STEP_SUMMARY" ]; then

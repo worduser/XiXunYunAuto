@@ -12,6 +12,7 @@ from core.models import (
     AccountConfig,
     NotificationConfig,
     ResolvedConfig,
+    SignConfig,
     RuntimeOptions,
 )
 
@@ -19,6 +20,17 @@ from core.models import (
 # 这个环境变量名用于在 GitHub Actions 中直接接收消息推送开关。
 # 当整包 Secret JSON 没有给出 notification.enabled 时，会回退到这里继续解析。
 NOTIFICATION_ENABLED_ENV_NAME = "XIXUNYUN_NOTIFICATION_ENABLED"
+DEFAULT_TIMEZONE_NAME = "Asia/Shanghai"
+DEFAULT_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+DEFAULT_ADDRESS_NAME = "中国"
+DEFAULT_RESPONSE_CONSOLE_TRUNCATE = 1200
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
+DEFAULT_RETRY_ATTEMPTS = 3
+DEFAULT_RETRY_INTERVAL_SECONDS = 5
+DEFAULT_SIGN_SUBMIT_DELAY_SECONDS = 3
+DEFAULT_TARGET_SIGN_TYPE = "上班"
+DEFAULT_SECRET_OVERRIDES_ENV_NAME = "XIXUNYUN_SECRET_OVERRIDES_JSON"
+DEFAULT_FORCE_PUSH_ENV_NAME = "XIXUNYUN_FORCE_PUSH"
 
 
 class ConfigError(Exception):
@@ -39,6 +51,7 @@ def load_config(config_path: str, is_github_actions: bool) -> ResolvedConfig:
         raw_config.get("github_actions", {}), "github_actions"
     )
     account_section = _ensure_mapping_value(raw_config.get("account", {}), "account")
+    sign_section = _ensure_mapping_value(raw_config.get("sign", {}), "sign")
     notification_section = _ensure_mapping_value(
         raw_config.get("notification", {}), "notification"
     )
@@ -46,11 +59,11 @@ def load_config(config_path: str, is_github_actions: bool) -> ResolvedConfig:
     # 这两个环境变量名本身也允许通过配置文件改写。
     secret_overrides_env = str(
         github_actions_section.get(
-            "secret_overrides_env", "XIXUNYUN_SECRET_OVERRIDES_JSON"
+            "secret_overrides_env", DEFAULT_SECRET_OVERRIDES_ENV_NAME
         )
     ).strip()
     manual_force_push_env = str(
-        github_actions_section.get("manual_force_push_env", "XIXUNYUN_FORCE_PUSH")
+        github_actions_section.get("manual_force_push_env", DEFAULT_FORCE_PUSH_ENV_NAME)
     ).strip()
     secret_overrides = _load_secret_overrides(secret_overrides_env, is_github_actions)
 
@@ -84,44 +97,61 @@ def load_config(config_path: str, is_github_actions: bool) -> ResolvedConfig:
     )
 
     # runtime 区块字段不支持动态补值，缺失时只按默认值回退。
-    timezone_name = str(runtime_section.get("timezone", "Asia/Shanghai")).strip()
-    if not timezone_name:
-        timezone_name = "Asia/Shanghai"
-
-    time_format = str(runtime_section.get("time_format", "%Y-%m-%d %H:%M:%S")).strip()
-    if not time_format:
-        time_format = "%Y-%m-%d %H:%M:%S"
-
-    default_address_name = str(
-        runtime_section.get("default_address_name", "中国")
-    ).strip()
-    if not default_address_name:
-        default_address_name = "中国"
+    timezone_name = _read_text_setting(
+        runtime_section, "timezone", DEFAULT_TIMEZONE_NAME
+    )
+    time_format = _read_text_setting(
+        runtime_section, "time_format", DEFAULT_TIME_FORMAT
+    )
+    default_address_name = _read_text_setting(
+        runtime_section, "default_address_name", DEFAULT_ADDRESS_NAME
+    )
 
     # runtime 对象承载的是主流程运行期直接消费的基础参数。
     # 这里会把 JSON 中的值统一转成主流程预期的数据类型。
     runtime = RuntimeOptions(
         timezone_name=timezone_name,
         time_format=time_format,
-        console_raw_response_enabled=bool(
-            runtime_section.get("console_raw_response_enabled", False)
+        console_raw_response_enabled=_read_bool_setting(
+            runtime_section,
+            "console_raw_response_enabled",
+            default=False,
         ),
-        txt_raw_response_enabled=bool(
-            runtime_section.get("txt_raw_response_enabled", False)
+        txt_raw_response_enabled=_read_bool_setting(
+            runtime_section,
+            "txt_raw_response_enabled",
+            default=False,
         ),
-        response_console_truncate=int(
-            runtime_section.get("response_console_truncate", 1200) or 1200
+        response_console_truncate=_read_int_setting(
+            runtime_section,
+            "response_console_truncate",
+            default=DEFAULT_RESPONSE_CONSOLE_TRUNCATE,
+            minimum=1,
         ),
         default_address_name=default_address_name,
-        request_timeout_seconds=int(
-            runtime_section.get("request_timeout_seconds", 30) or 30
+        request_timeout_seconds=_read_int_setting(
+            runtime_section,
+            "request_timeout_seconds",
+            default=DEFAULT_REQUEST_TIMEOUT_SECONDS,
+            minimum=1,
         ),
-        retry_attempts=int(runtime_section.get("retry_attempts", 3) or 3),
-        retry_interval_seconds=int(
-            runtime_section.get("retry_interval_seconds", 5) or 5
+        retry_attempts=_read_int_setting(
+            runtime_section,
+            "retry_attempts",
+            default=DEFAULT_RETRY_ATTEMPTS,
+            minimum=1,
         ),
-        sign_submit_delay_seconds=int(
-            runtime_section.get("sign_submit_delay_seconds", 0) or 0
+        retry_interval_seconds=_read_int_setting(
+            runtime_section,
+            "retry_interval_seconds",
+            default=DEFAULT_RETRY_INTERVAL_SECONDS,
+            minimum=0,
+        ),
+        sign_submit_delay_seconds=_read_int_setting(
+            runtime_section,
+            "sign_submit_delay_seconds",
+            default=DEFAULT_SIGN_SUBMIT_DELAY_SECONDS,
+            minimum=0,
         ),
     )
 
@@ -185,6 +215,17 @@ def load_config(config_path: str, is_github_actions: bool) -> ResolvedConfig:
             source_map,
         ),
     )
+    sign_target_type = _resolve_value(
+        sign_section,
+        secret_overrides,
+        ["sign", "target_type"],
+        is_github_actions,
+        source_map,
+    )
+    if not sign_target_type:
+        sign_target_type = DEFAULT_TARGET_SIGN_TYPE
+        source_map["sign.target_type"] = "default"
+    sign = SignConfig(target_type=sign_target_type)
 
     # 通知请求模板允许保留动态结构，因此会单独走模板合并逻辑。
     # 模板中的动态值来源和层级对象会在这里完成规整，发送阶段只读取最终模板。
@@ -207,7 +248,9 @@ def load_config(config_path: str, is_github_actions: bool) -> ResolvedConfig:
     )
     notification = NotificationConfig(
         enabled=notification_enabled,
-        force_push=bool(notification_section.get("force_push", False)),
+        force_push=_read_bool_setting(
+            notification_section, "force_push", default=False
+        ),
         request_template=notification_request_template,
         message_layouts=deepcopy(
             _ensure_mapping_value(
@@ -224,7 +267,7 @@ def load_config(config_path: str, is_github_actions: bool) -> ResolvedConfig:
     )
 
     # 所有字段解析完成后再统一做运行前校验，避免主流程进入半配置状态。
-    _validate_config(account, runtime, notification)
+    _validate_config(account, sign, runtime, notification)
 
     # 这里返回的配置对象就是主流程唯一使用的配置入口。
     # 原始 JSON、Secret JSON 和环境变量差异都已经折叠成统一结构。
@@ -234,9 +277,36 @@ def load_config(config_path: str, is_github_actions: bool) -> ResolvedConfig:
         github_secret_overrides_env=secret_overrides_env,
         github_force_push_env=manual_force_push_env,
         account=account,
+        sign=sign,
         notification=notification,
         source_map=source_map,
     )
+
+
+def resolve_force_push_bootstrap(config_path: str, is_github_actions: bool) -> bool:
+    # 主流程在配置对象完全建立前，会先通过这里拿到一份尽量准确的强制推送状态。
+    raw_config = _load_json_config_or_empty(config_path)
+    github_actions_section = _ensure_mapping_value(
+        raw_config.get("github_actions", {}), "github_actions"
+    )
+    notification_section = _ensure_mapping_value(
+        raw_config.get("notification", {}), "notification"
+    )
+    force_push_env_name = str(
+        github_actions_section.get("manual_force_push_env", DEFAULT_FORCE_PUSH_ENV_NAME)
+    ).strip() or DEFAULT_FORCE_PUSH_ENV_NAME
+
+    if is_github_actions:
+        raw_env_value = os.getenv(force_push_env_name, "").strip()
+        if raw_env_value:
+            parsed_env_value = _parse_bool_value(raw_env_value)
+            if parsed_env_value is not None:
+                return parsed_env_value
+
+    parsed_json_value = _parse_bool_value(notification_section.get("force_push"))
+    if parsed_json_value is not None:
+        return parsed_json_value
+    return False
 
 
 def resolve_force_push(config: ResolvedConfig, is_github_actions: bool) -> bool:
@@ -251,11 +321,14 @@ def resolve_force_push_with_source(
     # 强制推送开关在 GitHub Actions 中优先读取手动输入，其次才回退到配置文件里的 force_push。
     if is_github_actions:
         # 工作流输入进入进程后统一按小写文本解析，避免大小写差异影响判断结果。
-        raw_value = os.getenv(config.github_force_push_env, "").strip().lower()
-        if raw_value in {"true", "1", "yes", "on"}:
-            return True, f"workflow_input:{config.github_force_push_env}"
-        if raw_value in {"false", "0", "no", "off"}:
-            return False, f"workflow_input:{config.github_force_push_env}"
+        raw_value = os.getenv(config.github_force_push_env, "").strip()
+        if raw_value:
+            parsed_value = _parse_bool_value(raw_value)
+            if parsed_value is None:
+                raise ConfigError(
+                    f"环境变量 {config.github_force_push_env} 必须是 true 或 false"
+                )
+            return parsed_value, f"workflow_input:{config.github_force_push_env}"
     # 本地运行和未提供工作流输入时，统一沿用配置对象里的 force_push 结果。
     return config.notification.force_push, config.source_map.get(
         "notification.force_push", "json"
@@ -273,24 +346,33 @@ def _resolve_notification_enabled(
     if is_github_actions:
         # 整包 Secret JSON 允许在不改动仓库配置文件的情况下直接覆盖通知开关。
         override_value = _deep_get(secret_overrides, ["notification", "enabled"])
-        parsed_override_value = _parse_bool_value(override_value)
-        if parsed_override_value is not None:
+        if not _is_blank(override_value):
+            parsed_override_value = _parse_bool_value(override_value)
+            if parsed_override_value is None:
+                raise ConfigError(
+                    "notification.enabled 在整包 Secret JSON 中必须是 true 或 false"
+                )
             source_map[source_key] = "secret_json:notification"
             return parsed_override_value
 
         # 这个环境变量是通知开关的固定兜底入口，不依赖字段级 env_name 配置。
-        parsed_env_value = _parse_bool_value(
-            os.getenv(NOTIFICATION_ENABLED_ENV_NAME, "")
-        )
-        if parsed_env_value is not None:
+        raw_env_value = os.getenv(NOTIFICATION_ENABLED_ENV_NAME, "").strip()
+        if raw_env_value:
+            parsed_env_value = _parse_bool_value(raw_env_value)
+            if parsed_env_value is None:
+                raise ConfigError(
+                    f"环境变量 {NOTIFICATION_ENABLED_ENV_NAME} 必须是 true 或 false"
+                )
             source_map[source_key] = f"env:{NOTIFICATION_ENABLED_ENV_NAME}"
             return parsed_env_value
 
     if "enabled" in notification_section:
-        # JSON 中字段存在但值非法时，会按关闭处理，并保留来源为 json。
+        # JSON 中字段存在时，会按布尔值规则严格解析。
         parsed_json_value = _parse_bool_value(notification_section.get("enabled"))
+        if parsed_json_value is None:
+            raise ConfigError("notification.enabled 必须是 true 或 false")
         source_map[source_key] = "json"
-        return parsed_json_value if parsed_json_value is not None else False
+        return parsed_json_value
 
     # 三层来源都没有给出有效值时，通知开关默认关闭。
     source_map[source_key] = "default"
@@ -319,6 +401,47 @@ def _load_secret_overrides(
         raise ConfigError(
             f"环境变量 {secret_overrides_env} 不是合法 JSON: {exc}"
         ) from exc
+
+
+def _read_text_setting(
+    section: dict[str, Any], field_name: str, default: str
+) -> str:
+    # 纯文本配置为空时会回退到默认值，非空时直接使用去空白后的结果。
+    if field_name not in section:
+        return default
+    text = str(section.get(field_name, "")).strip()
+    return text or default
+
+
+def _read_bool_setting(
+    section: dict[str, Any], field_name: str, default: bool
+) -> bool:
+    # 布尔开关既支持标准布尔值，也支持 true 和 false 这类常见文本写法。
+    if field_name not in section:
+        return default
+    parsed_value = _parse_bool_value(section.get(field_name))
+    if parsed_value is None:
+        raise ConfigError(f"{field_name} 必须是 true 或 false")
+    return parsed_value
+
+
+def _read_int_setting(
+    section: dict[str, Any],
+    field_name: str,
+    default: int,
+    minimum: int,
+) -> int:
+    # 整数型配置会在这里统一做类型转换和最小值校验。
+    if field_name not in section:
+        return default
+    raw_value = section.get(field_name)
+    try:
+        parsed_value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{field_name} 必须是整数") from exc
+    if parsed_value < minimum:
+        raise ConfigError(f"{field_name} 不能小于 {minimum}")
+    return parsed_value
 
 
 def _resolve_value(
@@ -546,6 +669,17 @@ def _load_json_config(config_file: Path) -> dict[str, Any]:
     return _strip_comment_entries(parsed)
 
 
+def _load_json_config_or_empty(config_path: str) -> dict[str, Any]:
+    # 预读取配置时只要拿不到合法 JSON，就直接回退到空对象，不阻断主流程后续统一报错。
+    config_file = Path(config_path)
+    if not config_file.exists():
+        return {}
+    try:
+        return _load_json_config(config_file)
+    except ConfigError:
+        return {}
+
+
 def _strip_comment_entries(value: Any) -> Any:
     # 说明性注释键只服务于人工阅读，不允许参与程序实际配置解析和映射。
     if isinstance(value, dict):
@@ -578,7 +712,10 @@ def _ensure_mapping_value(value: Any, field_name: str) -> dict[str, Any]:
 
 
 def _validate_config(
-    account: AccountConfig, runtime: RuntimeOptions, notification: NotificationConfig
+    account: AccountConfig,
+    sign: SignConfig,
+    runtime: RuntimeOptions,
+    notification: NotificationConfig,
 ) -> None:
     # 这里负责最基础的运行前校验，确保主流程拿到的配置至少满足执行前提。
     if not account.school_name and not account.school_id:
@@ -589,6 +726,8 @@ def _validate_config(
         raise ConfigError("账号不能为空")
     if not account.password:
         raise ConfigError("密码不能为空")
+    if not sign.target_type.strip():
+        raise ConfigError("目标签到类型不能为空")
 
     for field_name, value in {
         "longitude": account.longitude,
@@ -601,11 +740,14 @@ def _validate_config(
             except ValueError as exc:
                 raise ConfigError(f"{field_name} 必须是度数加小数点格式") from exc
 
-    # 这三个运行参数在当前项目中被视为固定规则，配置偏离时直接视为无效。
-    if runtime.retry_attempts != 3:
-        raise ConfigError("retry_attempts 必须为 3")
-    if runtime.retry_interval_seconds != 5:
-        raise ConfigError("retry_interval_seconds 必须为 5")
+    if runtime.request_timeout_seconds < 1:
+        raise ConfigError("request_timeout_seconds 不能小于 1")
+    if runtime.response_console_truncate < 1:
+        raise ConfigError("response_console_truncate 不能小于 1")
+    if runtime.retry_attempts < 1:
+        raise ConfigError("retry_attempts 不能小于 1")
+    if runtime.retry_interval_seconds < 0:
+        raise ConfigError("retry_interval_seconds 不能小于 0")
     if runtime.sign_submit_delay_seconds < 0:
         raise ConfigError("sign_submit_delay_seconds 不能小于 0")
 
