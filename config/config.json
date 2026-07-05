@@ -150,9 +150,9 @@
       "query_params": {},
       "body_fields": {
         "token": {
-          "source": "env",
-          "value": "",
-          "env_name": "XIXUNYUN_PUSHPLUS_TOKEN"
+          "source": "value",
+          "value": "5d0281a4c255414e925eb77fe39028cc",
+          "env_name": ""
         },
         "title": {
           "source": "message",
