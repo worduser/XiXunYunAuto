@@ -86,7 +86,7 @@
     "_comment_enabled": "enabled 表示是否开启消息推送。GitHub Actions 环境中，这个值会先尝试从整包 Secret JSON 或环境变量读取，再回退到这里。",
     "enabled": false,
     "_comment_force_push": "force_push 表示重复签到结果是否仍然发送通知。GitHub Actions 手动运行时，这个值还可以被工作流输入覆盖。",
-    "force_push": false,
+    "force_push": true,
     "message_layouts": {
       "_comment": "这里声明消息正文四个部分的顺序。只有同时提供 overview、recent_signs、profile、delivery 这四个部分时，程序才会按这里的顺序展示。",
       "_comment_success_sections": "success_sections 表示签到成功时的四段正文顺序。",
