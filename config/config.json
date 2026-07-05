@@ -132,70 +132,37 @@
       ]
     },
     "request": {
-      "_comment": "这里给出一份可直接使用的 Bark 风格请求模板。程序会先解析固定值、环境变量和值来源，再按这里的定义发起通知请求。",
+      "_comment": "PushPlus 推送模板，token 填到 XIXUNYUN_PUSHPLUS_TOKEN 环境变量里",
       "url": {
-        "_comment": "url 描述推送地址来源。source 为 value 时优先使用 value，value 为空时再读取 env_name 指向的环境变量。",
         "source": "value",
-        "value": "https://api.day.app/push/",
-        "env_name": "XIXUNYUN_PUSH_URL"
+        "value": "https://www.pushplus.plus/send",
+        "env_name": "XIXUNYUN_PUSHPLUS_URL"
       },
-      "_comment_method": "method 表示通知请求使用的 HTTP 方法。主程序会在发送前把它统一转换成大写。",
       "method": "POST",
-      "_comment_body_type": "body_type 表示通知请求体的编码方式。json 表示走 json 请求体，form 表示走表单请求体。",
-      "body_type": "form",
+      "body_type": "json",
       "headers": {
-        "_comment": "headers 定义固定请求头。每个字段都支持固定值或环境变量补值。",
         "Content-Type": {
-          "_comment": "Content-Type 指定通知接口的请求体类型。当前模板固定使用表单编码头。",
           "source": "value",
-          "value": "application/x-www-form-urlencoded",
-          "env_name": "XIXUNYUN_PUSH_CONTENT_TYPE"
+          "value": "application/json",
+          "env_name": ""
         }
       },
-      "_comment_query_params": "query_params 定义通知请求的查询参数。当前模板为空对象，表示默认不追加查询参数。",
       "query_params": {},
       "body_fields": {
-        "_comment": "body_fields 定义通知请求体字段。source 为 message 时读取程序生成的消息变量。source 为 value 时读取固定值或环境变量。",
-        "device_key": {
-          "_comment": "device_key 表示 Bark 设备标识。这里允许固定填写，也允许从环境变量读取。",
+        "token": {
           "source": "value",
           "value": "",
-          "env_name": "XIXUNYUN_PUSH_DEVICE_KEY"
+          "env_name": "XIXUNYUN_PUSHPLUS_TOKEN"
         },
         "title": {
-          "_comment": "title 表示通知标题。它从消息变量 title 中取值。",
           "source": "message",
           "variable": "title"
         },
-        "subtitle": {
-          "_comment": "subtitle 表示通知副标题。它从消息变量 current_time 中取值。",
-          "source": "message",
-          "variable": "current_time"
-        },
-        "body": {
-          "_comment": "body 表示通知正文。它从消息变量 body 中取值。",
+        "content": {
           "source": "message",
           "variable": "body"
-        },
-        "level": {
-          "_comment": "level 表示 Bark 消息等级。当前模板固定使用 timeSensitive。",
-          "source": "value",
-          "value": "timeSensitive",
-          "env_name": "XIXUNYUN_PUSH_LEVEL"
-        },
-        "group": {
-          "_comment": "group 表示通知分组名称。当前模板固定使用习讯云。",
-          "source": "value",
-          "value": "习讯云",
-          "env_name": "XIXUNYUN_PUSH_GROUP"
-        },
-        "isArchive": {
-          "_comment": "isArchive 表示是否把通知归档。当前模板固定传 1。",
-          "source": "value",
-          "value": "1",
-          "env_name": "XIXUNYUN_PUSH_ARCHIVE"
         }
       }
-    }
+    }   
   }
 }
