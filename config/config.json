@@ -32,8 +32,8 @@
   },
   "accounts": [
     {
-      "_comment": "第一个账号的所有配置",
-      "school_name": "", //只有 school_id 为空时程序才会使用这个名称去学校查询接口做精确匹配。
+      "_comment": "第一个账号的所有配置,只有 school_id 为空时程序才会使用school_name去学校查询接口做精确匹配。",
+      "school_name": "", 
       "school_id": "834",
       "account": "18933399770",
       "password": "123456@Ab",
