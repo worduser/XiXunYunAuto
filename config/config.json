@@ -30,60 +30,113 @@
     "_comment_manual_force_push_env": "manual_force_push_env 表示手动运行页面中的强制推送输入项映射到的环境变量名。",
     "manual_force_push_env": "XIXUNYUN_FORCE_PUSH"
   },
-  "accounts": [
-    {
-      "_comment": "第一个账号的所有配置,只有 school_id 为空时程序才会使用school_name去学校查询接口做精确匹配。",
-      "school_name": "", 
-      "school_id": "834",
-      "account": "18933399770",
-      "password": "123456@Ab",
-      "address": "",
-      "address_name": "中山市九九信息科技有限公司",
-      "longitude": "",
-      "latitude": "",
-      "sign_type": "上班",
-      "notification": {
-        "enabled": true,
-        "push_token": "ec6caf24e4c148f39a0db68d6033a61e",
-        "push_url": "https://www.pushplus.plus/send"
-      }
+  "account": {
+    "_comment": "这个区块保存签到主体和地点信息。学校、账号、密码用于登录。地址和经纬度用于发起签到，留空时程序会尝试从签到查询接口中补足。地点名称留空时会回退到运行时默认地址名称。",
+    "school_name": {
+      "_comment": "school_name 的 value 表示学校全称。只有 school_id 为空时程序才会使用这个名称去学校查询接口做精确匹配。env_name 表示对应的环境变量名。",
+      "value": "",
+      "env_name": "XIXUNYUN_SCHOOL_NAME"
     },
-    {
-      "_comment": "第二个账号的所有配置",
-      "school_name": "",
-      "school_id": "834",
-      "account": "15818910715",
-      "password": "321169@Aa",
-      "address": "",
-      "address_name": "中山市九九信息科技有限公司",
-      "longitude": "",
-      "latitude": "",
-      "sign_type": "上班",
-      "notification": {
-        "enabled": true,
-        "push_token": "5d0281a4c255414e925eb77fe39028cc",
-        "push_url": "https://www.pushplus.plus/send"
-      }
+    "school_id": {
+      "_comment": "school_id 的 value 表示学校 ID 字符串。填写后程序会直接使用这个值，并跳过学校名称查询。env_name 表示对应的环境变量名。",
+      "value": "",
+      "env_name": "XIXUNYUN_SCHOOL_ID"
+    },
+    "account": {
+      "_comment": "account 的 value 表示习讯云登录账号。env_name 表示对应的环境变量名。",
+      "value": "",
+      "env_name": "XIXUNYUN_ACCOUNT"
+    },
+    "password": {
+      "_comment": "password 的 value 表示习讯云登录密码。env_name 表示对应的环境变量名。",
+      "value": "",
+      "env_name": "XIXUNYUN_PASSWORD"
+    },
+    "address": {
+      "_comment": "address 的 value 表示签到提交时使用的详细地址。留空时程序会优先尝试从签到查询接口返回的 mid_sign_address 中补足。env_name 表示对应的环境变量名。",
+      "value": "",
+      "env_name": "XIXUNYUN_ADDRESS"
+    },
+    "address_name": {
+      "_comment": "address_name 的 value 表示地点名称。留空时程序会直接回退到运行时默认地址名称。env_name 表示对应的环境变量名。",
+      "value": "",
+      "env_name": "XIXUNYUN_ADDRESS_NAME"
+    },
+    "longitude": {
+      "_comment": "longitude 的 value 表示明文经度。留空时程序会尝试从签到查询接口返回的 mid_sign_longitude 中补足。env_name 表示对应的环境变量名。",
+      "value": "",
+      "env_name": "XIXUNYUN_LONGITUDE"
+    },
+    "latitude": {
+      "_comment": "latitude 的 value 表示明文纬度。留空时程序会尝试从签到查询接口返回的 mid_sign_latitude 中补足。env_name 表示对应的环境变量名。",
+      "value": "",
+      "env_name": "XIXUNYUN_LATITUDE"
     }
-  ],
+  },
+  "sign": {
+    "_comment": "这个区块保存签到类型匹配规则。程序会根据这里给出的签到类型文本，在签到查询接口返回的 mark_list 中寻找对应项。",
+    "target_type": {
+      "_comment": "target_type 的 value 表示需要匹配的签到类型文本。程序会找到同一项对应的 key，并把它作为签到请求中的 remark。env_name 表示对应的环境变量名。",
+      "value": "上班",
+      "env_name": "XIXUNYUN_SIGN_TYPE"
+    }
+  },
   "notification": {
-    "_comment": "全局默认推送配置。如果某个账号没有单独配置 notification，则会使用这里的设置。注意这里的 push_token 留空，由每个账号自己的 token 覆盖。",
+    "_comment": "这个区块定义消息推送行为。这里既控制是否推送，也描述推送请求模板和 Summary 区块顺序。",
+    "_comment_enabled": "enabled 表示是否开启消息推送。GitHub Actions 环境中，这个值会先尝试从整包 Secret JSON 或环境变量读取，再回退到这里。",
     "enabled": false,
+    "_comment_force_push": "force_push 表示重复签到结果是否仍然发送通知。GitHub Actions 手动运行时，这个值还可以被工作流输入覆盖。",
     "force_push": true,
     "message_layouts": {
-      "success_sections": ["overview", "recent_signs", "profile", "delivery"],
-      "failure_sections": ["overview", "recent_signs", "profile", "delivery"],
-      "exception_sections": ["overview", "recent_signs", "profile", "delivery"],
-      "repeated_sections": ["overview", "recent_signs", "profile", "delivery"]
+      "_comment": "这里声明消息正文四个部分的顺序。只有同时提供 overview、recent_signs、profile、delivery 这四个部分时，程序才会按这里的顺序展示。",
+      "_comment_success_sections": "success_sections 表示签到成功时的四段正文顺序。",
+      "success_sections": [
+        "overview",
+        "recent_signs",
+        "profile",
+        "delivery"
+      ],
+      "_comment_failure_sections": "failure_sections 表示签到失败时的四段正文顺序。",
+      "failure_sections": [
+        "overview",
+        "recent_signs",
+        "profile",
+        "delivery"
+      ],
+      "_comment_exception_sections": "exception_sections 表示程序异常时的四段正文顺序。",
+      "exception_sections": [
+        "overview",
+        "recent_signs",
+        "profile",
+        "delivery"
+      ],
+      "_comment_repeated_sections": "repeated_sections 表示重复签到时的四段正文顺序。",
+      "repeated_sections": [
+        "overview",
+        "recent_signs",
+        "profile",
+        "delivery"
+      ]
     },
     "summary_layouts": {
-      "sections": ["headline", "config_sources", "result", "recent_signs", "timeline", "workflow_info", "error"]
+      "_comment": "这里定义 GitHub Actions Summary 的区块顺序。sections 数组会按顺序决定每个区块的渲染位置。",
+      "_comment_sections": "sections 按顺序列出 Summary 区块键名。主程序会依次查找并渲染这些区块。",
+      "sections": [
+        "headline",
+        "config_sources",
+        "result",
+        "recent_signs",
+        "timeline",
+        "workflow_info",
+        "error"
+      ]
     },
     "request": {
+      "_comment": "PushPlus 推送模板，token 填到 XIXUNYUN_PUSHPLUS_TOKEN 环境变量里",
       "url": {
         "source": "value",
         "value": "https://www.pushplus.plus/send",
-        "env_name": ""
+        "env_name": "XIXUNYUN_PUSHPLUS_URL"
       },
       "method": "POST",
       "body_type": "json",
@@ -98,7 +151,7 @@
       "body_fields": {
         "token": {
           "source": "value",
-          "value": "",
+          "value": "5d0281a4c255414e925eb77fe39028cc",
           "env_name": ""
         },
         "title": {
@@ -110,6 +163,6 @@
           "variable": "body"
         }
       }
-    }
+    }   
   }
 }
